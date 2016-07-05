@@ -59,22 +59,22 @@ namespace GZipTest
             switch (args.Length) 
             {
                 case (int)Args.NoArgs:
-                    System.Console.WriteLine("Error: No arguments \n" + standartProgramCmd);
+                    System.Console.WriteLine("Error: No arguments. \n" + standartProgramCmd);
                     IsError = true;
                     break;
                 case (int)Args.NoFileAndArchiveNames:
-                    System.Console.WriteLine("Error: File name and archive name are missing \n" + standartProgramCmd);
+                    System.Console.WriteLine("Error: File name and archive name are missing. \n" + standartProgramCmd);
                     IsError = true;
                     break;
                 case (int)Args.NoFileOrArchiveName:
-                    System.Console.WriteLine("Error: File name or archive name is missing \n" + standartProgramCmd);
+                    System.Console.WriteLine("Error: File name or archive name is missing. \n" + standartProgramCmd);
                     IsError = true;
                     break;
                 case (int)Args.All:
                     string command = args[0];
                     if ((command != "compress") && (command != "decompress"))
                     {
-                        System.Console.WriteLine("Error: Unknown command \"" + command + "\" \n" + standartProgramCmd);
+                        System.Console.WriteLine("Error: Unknown command \"" + command + "\". \n" + standartProgramCmd);
                         IsError = true;
                         break;
                     }
@@ -84,7 +84,7 @@ namespace GZipTest
                     FileInfo fi1 = new FileInfo(file1);
                     if (!fi1.Exists)
                     {
-                        System.Console.WriteLine("Error: file \"{0}\" not found", file1);
+                        System.Console.WriteLine("Error: file \"{0}\" not found.", file1);
                         IsError = true;
                         break;                    
                     }
@@ -95,12 +95,10 @@ namespace GZipTest
                             try
                             {
                                 long archiveLength = GZip.Compress(fi1, file2);
-                                System.Console.WriteLine("Compressed {0} from {1} to {2} bytes.",
-                                    fi1.Name, fi1.Length.ToString(), archiveLength.ToString());
                             }
                             catch (Exception ex)
                             {
-                                System.Console.WriteLine("Error: {0}", ex);
+                                System.Console.WriteLine("Error: {0}", ex.Message);
                             }
                             break;
                         case "decompress":
@@ -110,7 +108,7 @@ namespace GZipTest
                             }
                             catch (Exception ex)
                             {
-                                System.Console.WriteLine("Error: {0}", ex);
+                                System.Console.WriteLine("Error: {0}", ex.Message);
                             }
                             break;
                         // Any new commands
