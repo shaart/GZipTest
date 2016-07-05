@@ -1,0 +1,6 @@
+F:\GitHub\GZipTest\GZipTest\bin\Debug\GZipTest.exe.config
+F:\GitHub\GZipTest\GZipTest\bin\Debug\GZipTest.exe
+F:\GitHub\GZipTest\GZipTest\bin\Debug\GZipTest.pdb
+F:\GitHub\GZipTest\GZipTest\obj\Debug\GZipTest.csprojResolveAssemblyReference.cache
+F:\GitHub\GZipTest\GZipTest\obj\Debug\GZipTest.exe
+F:\GitHub\GZipTest\GZipTest\obj\Debug\GZipTest.pdb
