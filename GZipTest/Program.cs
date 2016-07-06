@@ -50,13 +50,34 @@ namespace GZipTest
 
         static int Main(string[] args)
         {
+            string f1 = @"D:\dump\fmmc.mp3";
+            string f2 = @"D:\dump\fmmc.mp3.gz";
+            // Check files existance
+            FileInfo fi01 = new FileInfo(f1);
+            if (!fi01.Exists)
+            {
+                System.Console.WriteLine("Error: file \"{0}\" not found.", f1);
+            }
+            try
+            {
+                long archiveLength = GZip.Compress(fi01, f2);
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine("Error: {0}", ex.Message);
+            }
+            return 0;
+
+
+
+
             const string standartProgramCmd = "Standart program usage: \n" +
                                               "  GZipTest.exe compress [file_name] [archive_name] \n" +
                                               "  GZipTest.exe decompress [archive_name] [file_name]";
             //int StatusCode = 0;
             bool IsError = false;
 
-            switch (args.Length) 
+            switch (args.Length)
             {
                 case (int)Args.NoArgs:
                     System.Console.WriteLine("Error: No arguments. \n" + standartProgramCmd);
@@ -86,11 +107,11 @@ namespace GZipTest
                     {
                         System.Console.WriteLine("Error: file \"{0}\" not found.", file1);
                         IsError = true;
-                        break;                    
+                        break;
                     }
-                    // Compress/Decompress
+                    // compressStream/Decompress
                     switch (command)
-                    { 
+                    {
                         case "compress":
                             try
                             {
@@ -120,7 +141,7 @@ namespace GZipTest
                 default:
                     System.Console.WriteLine("Error: Too many arguments \n" + standartProgramCmd);
                     IsError = true;
-                    break;            
+                    break;
             }
             return IsError ? 1 : 0;
         }
