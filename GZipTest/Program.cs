@@ -50,8 +50,13 @@ namespace GZipTest
 
         static int Main(string[] args)
         {
-            string f1 = @"D:\dump\fmmc.mp3";
-            string f2 = @"D:\dump\fmmc.mp3.gz";
+            /*
+            string f1 = @"D:\dump\uita2.mp3.gz";
+            string f2 = @"D:\dump\uita3.mp3";
+            //string f1 = @"D:\dump\fmmc2.mp3.gz";
+            //string f2 = @"D:\dump\fmmc3.mp3";
+            //string f1 = @"D:\dump\fmmc.mp3";
+            //string f2 = @"D:\dump\fmmc2.mp3.gz";
             // Check files existance
             FileInfo fi01 = new FileInfo(f1);
             if (!fi01.Exists)
@@ -60,15 +65,16 @@ namespace GZipTest
             }
             try
             {
-                long archiveLength = GZip.Compress(fi01, f2);
+                //long archiveLength = GZip.Compress(fi01, f2);
+                long archiveLength = GZip.Decompress(fi01, f2);
             }
             catch (Exception ex)
             {
                 System.Console.WriteLine("Error: {0}", ex.Message);
             }
             return 0;
-
-
+            
+            */
 
 
             const string standartProgramCmd = "Standart program usage: \n" +
@@ -99,13 +105,13 @@ namespace GZipTest
                         IsError = true;
                         break;
                     }
-                    string file1 = args[1];
-                    string file2 = args[2];
+                    string inFile = args[1];
+                    string outFile = args[2];
                     // Check files existance
-                    FileInfo fi1 = new FileInfo(file1);
-                    if (!fi1.Exists)
+                    FileInfo inFileInfo = new FileInfo(inFile);
+                    if (!inFileInfo.Exists)
                     {
-                        System.Console.WriteLine("Error: file \"{0}\" not found.", file1);
+                        System.Console.WriteLine("Error: file \"{0}\" not found.", inFile);
                         IsError = true;
                         break;
                     }
@@ -115,7 +121,7 @@ namespace GZipTest
                         case "compress":
                             try
                             {
-                                long archiveLength = GZip.Compress(fi1, file2);
+                                long archiveLength = GZip.Compress(inFileInfo, outFile);
                             }
                             catch (Exception ex)
                             {
@@ -125,7 +131,7 @@ namespace GZipTest
                         case "decompress":
                             try
                             {
-                                GZip.Decompress(fi1, file2);
+                                long fileLength = GZip.Decompress(inFileInfo, outFile);
                             }
                             catch (Exception ex)
                             {
