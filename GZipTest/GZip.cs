@@ -7,6 +7,7 @@ using System.IO;                        // File, FileInfo, FileStream
 using System.IO.Compression;            // GZipStream
 using System.Threading;                 // Thread
 
+#region LINKS_AND_NOTES
 // Threading: start, sleep, abort, join: https://msdn.microsoft.com/en-us/library/aa645740(v=vs.71).aspx
 // GZip: https://msdn.microsoft.com/ru-ru/library/system.io.compression.gzipstream(v=vs.100).aspx
 // Multithreading gzip: http://peterkellner.net/2010/12/04/simple-multithreading-pattern-for-c-sharp-with-no-statics-and-gzip-compression/
@@ -32,7 +33,6 @@ using System.Threading;                 // Thread
 // Число потоков = числу логических процессоров
 // Каждый поток должен обрабатывать некоторый buffer и записывать в файл
 // Неплохо бы хранить контрольную сумму исходного файла
-
 
 /*
  * Считываем общее количество байт файла
@@ -60,226 +60,98 @@ using System.Threading;                 // Thread
  * Практическое руководство. Синхронизация потока-производителя и потока-потребителя (Руководство по программированию на C#)
  *    https://msdn.microsoft.com/ru-ru/library/yy12yx1f(v=vs.90).aspx
  */
+#endregion
+
 namespace GZipTest
 {
-    struct ReaderParameters
-    {
-        public int tid;
-        public FileInfo originalFile;
-        public long startReadOffset;
-        public int consoleCursorTop;
-        public bool showMessagesInConsole;
-
-        public ReaderParameters(int tid, FileInfo originalFile, long startReadOffset,
-            int consoleCursorTop, bool showMessagesInConsole)
-        {
-            this.tid = tid;
-            this.originalFile = originalFile;
-            this.startReadOffset = startReadOffset;
-            this.consoleCursorTop = consoleCursorTop;
-            this.showMessagesInConsole = showMessagesInConsole;
-        }
-    }
-
-    struct WriteParameters
-    {
-        public string resultFilePath;
-        public int consoleCursorTop;
-        public bool showMessagesInConsole;
-
-        public WriteParameters(string resultFilePath, int consoleCursorTop, bool showMessagesInConsole)
-        {
-            this.resultFilePath = resultFilePath;
-            this.consoleCursorTop = consoleCursorTop;
-            this.showMessagesInConsole = showMessagesInConsole;
-        }
-    }
-
-    struct CompressParameters
-    {
-        public FileInfo originalFile;
-        public long startReadOffset;
-        public int consoleCursorTop;
-        public bool showMessagesInConsole;
-
-        public CompressParameters(FileInfo originalFile, long startReadOffset,
-            int consoleCursorTop, bool showMessagesInConsole)
-        {
-            this.originalFile = originalFile;
-            this.startReadOffset = startReadOffset;
-            this.consoleCursorTop = consoleCursorTop;
-            this.showMessagesInConsole = showMessagesInConsole;
-        }
-    }
-
-    class WriterQueue : IDisposable
-    {
-        /// <summary>
-        /// Signal for queue
-        /// </summary>
-        EventWaitHandle wh = new AutoResetEvent(false);
-        Thread worker;
-        public Thread WorkerThread { get { return worker; } }
-        /// <summary>
-        /// Locker for queue
-        /// </summary>
-        object locker = new object();
-        /// <summary>
-        /// Locker for queue
-        /// </summary>
-        object consoleLocker;
-        Queue<Byte[]> tasks = new Queue<byte[]>();
-
-        int readThreadCount = 0;
-        int numberOfWaitingThread = 0;
-        public int NumberOfWaitingThread { get { return numberOfWaitingThread; } }
-
-        /// <summary>
-        /// How many bytes already writed to file
-        /// </summary>
-        private long bytesWrited = 0;
-        /// <summary>
-        /// Property. Contains how many bytes already writed to file
-        /// </summary>
-        public long BytesWrited { get { return bytesWrited; } }
-
-        public WriterQueue(string resultFilePath, int readThreadCount, int consoleCursorTop, bool showMessagesInConsole, object consoleLock)
-        {
-            this.readThreadCount = readThreadCount;
-            this.consoleLocker = consoleLock;
-            WriteParameters wPar = new WriteParameters(resultFilePath, consoleCursorTop, showMessagesInConsole);
-            worker = new Thread(Work);
-            worker.Name = "Write Thread";
-            worker.IsBackground = true;
-            worker.Start(wPar);
-        }
-
-        public bool EnqueueTask(byte[] task, int threadNumber)
-        {
-            if (threadNumber == numberOfWaitingThread)
-            {
-                lock (locker)
-                {
-                    tasks.Enqueue(task);
-                }
-                wh.Set();           // Signal what queue get new task
-                numberOfWaitingThread++;
-                if (numberOfWaitingThread == readThreadCount)
-                {
-                    numberOfWaitingThread = 0;
-                }
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        private void EnqueueTask(byte[] task)
-        {
-            lock (locker)
-            {
-                tasks.Enqueue(task);
-            }
-            wh.Set();               // Signal what queue get new task
-        }
-
-        public void Dispose()
-        {
-            EnqueueTask(null);      // Signal for Writer to finishing
-            worker.Join();          // Wait for ending Writer
-            wh.Close();             // Free resources
-        }
-
-        void Work(object objParameters)
-        {
-            WriteParameters parameters;
-            if (objParameters != null)
-            {
-                parameters = (WriteParameters)objParameters;
-            }
-            else
-            {
-                throw new Exception("Can't start compress writer-thread without parameters");
-            }
-            try
-            {
-                using (FileStream outFile = File.Create(parameters.resultFilePath))
-                {
-                    while (true)
-                    {
-                        byte[] task = null;
-
-                        lock (locker)
-                        {
-                            if (tasks.Count > 0)
-                            {
-                                task = tasks.Dequeue();
-                                if (task == null)
-                                {
-                                    return;
-                                }
-                            }
-                        }
-
-                        if (task != null)
-                        {
-                            outFile.Write(task, 0, task.Length);                        // Write compressed bytes to file
-                            bytesWrited = outFile.Length;                               // Save the value of current archive length
-
-                            if (parameters.showMessagesInConsole)
-                            {
-                                lock (consoleLocker)
-                                {
-                                    System.Console.CursorTop = parameters.consoleCursorTop;
-                                    System.Console.CursorLeft = 0;
-                                    System.Console.Write(" - {0}: Writed {1} bytes",   // - Write Thread: Writed 1000 bytes
-                                        Thread.CurrentThread.Name,
-                                        outFile.Length.ToString());
-                                }
-                            }
-                        }
-                        else                // No tasks
-                        {
-                            wh.WaitOne();   // Wait for a signal
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-        }
-    }
-
     class GZip
     {
+        #region GLOBAL_VARIABLES
         /// <summary>
         /// Variable locking the console for the message output
         /// </summary>
         private static object threadConsoleLock = new object();
-
         /// <summary>
         /// Buffer for GZip: 64 KB
         /// </summary>
         const int bufferSize = 64 * 1024;
-
-        // For multi-threading: optimal count of thread. 
-        // User can edit this value at system variables
-        static readonly int optimalThreadCount = System.Environment.ProcessorCount;
-        static int threadCount = 0;
-        // ------------------------------------------------------------
-
-        static WriterQueue writer;
-        // PRODUCER-CONSUMER
         /// <summary>
-        /// compressStream file to archive using optimal number of threads
+        /// For multi-threading: optimal count of thread. 
+        /// User can edit this value at system variables
+        /// </summary>
+        static readonly int optimalThreadCount = System.Environment.ProcessorCount;
+        /// <summary>
+        /// Current number of read threads
+        /// </summary>
+        static int threadCount = 0;
+        /// <summary>
+        /// Class WriterQueue - thread for writing to file
+        /// </summary>
+        static WriterQueue writer;
+        #endregion
+        // ------------------------------------------------------------
+        #region STANDART_GZIP_COMPRESS_AND_DECOMPRESS_BLOCK
+        private static string directoryPath = @"d:\dump";
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="fileToCompress"></param>
+        public static void DefaultCompress(FileInfo fileToCompress)
+        {
+            using (FileStream originalFileStream = fileToCompress.OpenRead())
+            {
+                if ((File.GetAttributes(fileToCompress.FullName) &
+                   FileAttributes.Hidden) != FileAttributes.Hidden & fileToCompress.Extension != ".gz")
+                {
+                    using (FileStream compressedFileStream = File.Create(fileToCompress.FullName + ".gz"))
+                    {
+                        using (GZipStream compressionStream = new GZipStream(compressedFileStream,
+                           CompressionMode.Compress))
+                        {
+                            originalFileStream.CopyTo(compressionStream);
+
+                        }
+                    }
+                    FileInfo info = new FileInfo(directoryPath + "\\" + fileToCompress.Name + ".gz");
+                    Console.WriteLine("Compressed {0} from {1:N} to {2:N} bytes.",
+                    fileToCompress.Name, fileToCompress.Length.ToString(), info.Length.ToString());
+                }
+
+            }
+        }
+
+        /// <summary>
+        /// Standart decompress
+        /// </summary>
+        /// <param name="fileToDecompress">FileInfo of decompressing file</param>
+        public static void DefaultDecompress(FileInfo fileToDecompress)
+        {
+            using (FileStream originalFileStream = fileToDecompress.OpenRead())
+            {
+                string currentFileName = fileToDecompress.FullName;
+                string newFileName = currentFileName.Remove(currentFileName.Length - fileToDecompress.Extension.Length);
+
+                using (FileStream decompressedFileStream = File.Create(newFileName))
+                {
+                    using (GZipStream decompressionStream = new GZipStream(originalFileStream, CompressionMode.Decompress))
+                    {
+                        decompressionStream.CopyTo(decompressedFileStream);
+                        Console.WriteLine("Decompressed: {0}", fileToDecompress.Name);
+                    }
+                }
+            }
+        }
+        #endregion
+        // ------------------------------------------------------------
+        #region PRODUCER-CONSUMER_REGION
+
+        #region COMPRESS_BLOCK
+        /// <summary>
+        /// Compresses file to archive using optimal number of threads
         /// </summary>
         /// <param name="fi">FileInfo of original file</param>
-        /// <param name="archivePath">Path to resulting archive</param>
-        /// <param name="showMessagesInConsole">Show compress info messages at console?</param>
+        /// <param name="archivePath">Full path to resulting archive</param>
+        /// <param name="showMessagesInConsole">Should the output messages to the console</param>
         /// <returns>Size of result archive in bytes</returns>
         public static long Compress(FileInfo fi, string archivePath, bool showMessagesInConsole = true)
         {
@@ -296,15 +168,15 @@ namespace GZipTest
                         {
                             System.Console.WriteLine("Started compressing file \"{0}\"...", fi.Name);
                         }
-                        int currentCursorTop = Console.CursorTop;                                              // Save console cursor row position
+                        int currentCursorTop = Console.CursorTop;                           // Save console cursor row position
                         // Create new WriterQueue and start his thread
                         writer = new WriterQueue(archivePath, optimalThreadCount - 1,
                             currentCursorTop + optimalThreadCount - 1, showMessagesInConsole, threadConsoleLock);
 
-                        Thread[] threadPool = new Thread[optimalThreadCount - 1];                              // Create thread array
+                        Thread[] threadPool = new Thread[optimalThreadCount - 1];           // Create thread array
                         ReaderParameters readerParameters;
-                        for (int i = 0; i < optimalThreadCount - 1; i++)                                       // Creating read threads
-                        {                                                                                      // (optimalThreadCount - 1) because 1 thread for writing
+                        for (int i = 0; i < optimalThreadCount - 1; i++)                    // Creating read threads
+                        {                                                                   // (optimalThreadCount - 1) because 1 thread for writing
                             // Parameters for thread
                             readerParameters = new ReaderParameters(i, fi, i * bufferSize,
                                 currentCursorTop + i, showMessagesInConsole);
@@ -313,7 +185,6 @@ namespace GZipTest
                             threadPool[i].Name = "Read Thread #" + (i + 1);
                             threadPool[i].IsBackground = true;
                             threadPool[i].Start(readerParameters);
-                            //threadCount++;
                         }
                         // Waiting for all threads
                         for (int i = 0; i < optimalThreadCount - 1; i++)
@@ -321,7 +192,7 @@ namespace GZipTest
                             threadPool[i].Join();
                         }
                         // Say writer to finish work. 
-                        writer.Dispose();
+                        writer.Dispose();                                                   // Call dispose of writer thread, wait for end of his work
                         //writer.WorkerThread.Join(1000);
                         //writer.EnqueueTask(null, writer.NumberOfWaitingThread);
                         // Result
@@ -329,9 +200,9 @@ namespace GZipTest
                         {
                             lock (threadConsoleLock)
                             {
-                                System.Console.WriteLine("\n\nCompressed {0} from {1} to {2} bytes.",
+                                System.Console.WriteLine("\n\nCompressed {0} from {1:N} to {2:N} bytes.",
                                     fi.Name,
-                                    fi.Length.ToString(),
+                                    fi.Length,
                                     writer.BytesWrited);
                             }
                         }
@@ -355,6 +226,137 @@ namespace GZipTest
             }
         }
 
+        /// <summary>
+        /// Thread for reading, compressing data and sending it to Queue for writing to result file
+        /// </summary>
+        /// <param name="objParameters">Struct "ReaderParameters"</param>
+        private static void CompressThreadReader(object objParameters)
+        {
+            try
+            {
+                threadCount++;
+                ReaderParameters parameters;
+                if (objParameters != null)
+                {
+                    parameters = (ReaderParameters)objParameters;
+                }
+                else
+                {
+                    throw new Exception("Can't start compress-thread without parameters");
+                }
+                // While not end of file
+                using (FileStream inFile = parameters.originalFile.OpenRead())
+                {
+                    // Memory stream as buffer
+                    using (MemoryStream memory = new MemoryStream())
+                    {
+                        using (GZipStream gzip = new GZipStream(memory, CompressionMode.Compress, true))
+                        {
+                            int readBytes = 0;
+                            long threadProcessedSize = 0;
+                            long threadWritedToMemorySize = 0;                                      //debug
+                            byte[] buffer = new byte[bufferSize];
+                            do // while (inFile.Position < inFile.Length)
+                            {
+                                readBytes = inFile.Read(buffer, 0, buffer.Length);
+                                if (readBytes == 0)
+                                {
+                                    break;
+                                }
+                                gzip.Write(buffer, 0, readBytes);
+
+                                /*
+                                // For debug
+                                using (var outFile2 = File.OpenWrite("dump_readed.txt"))
+                                {
+                                    outFile2.Seek(0, SeekOrigin.End);
+                                    outFile2.Write(buffer, 0, readBytes);
+                                }
+                                */
+                                // Create task: enqueue compressed bytes using memory.ToArray()
+                                // Try until task be enqueued
+                                bool isSuccess = false;
+                                do
+                                {
+                                    // Bug: queue don't process last data
+                                    isSuccess = writer.EnqueueTask(memory.ToArray(), parameters.tid);
+                                    //isSuccess = writer.EnqueueTask(buffer, parameters.tid);       // For debug
+                                } while (!isSuccess);
+
+                                // Reset memory stream
+                                byte[] memoryBuffer = memory.GetBuffer();
+                                /*
+                                // For debug
+                                using (var outFile3 = File.OpenWrite("dump_memory.txt"))
+                                {
+                                    outFile3.Seek(0, SeekOrigin.End);
+                                    outFile3.Write(memoryBuffer, 0, memoryBuffer.Length);
+                                }
+                                */
+                                threadWritedToMemorySize += memoryBuffer.Length;                    // Calculate
+                                Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
+                                memory.Position = 0;
+                                memory.SetLength(0);
+                                memory.Capacity = 0;
+                                memory.Flush();
+
+                                threadProcessedSize += readBytes;                                  // Calculate result compressed size by thread
+                                // Compressed => change offset to next
+                                // Offset for buffer = 4096: 
+                                // b(4096)*2 = 8192      b*3 = 12288      b*4 = 16384  
+                                //    3 threads  00000	04095	t1 | 2 threads  00000	04095	t1
+                                //               04096	08191	t2 |            04096	08191	t2
+                                //               08192	12287	t3 |            08192	12287	t1
+                                //               12288	16383	t1 |            12288	16383	t2
+                                //               16384	20479	t2 |            16384	20479	t1
+                                //    t1: 4096 -> 12288 = +8192    | t1: 4096 -> 8192 = +4096
+                                // Offset: [(threadCount - 1) * bufSize(4096)]
+                                //   offset: (3-1)*4096 = 8192     | offset: (2-1)*4096 = 4096
+
+                                // Seek for new position
+                                inFile.Seek((optimalThreadCount - 2) * bufferSize,              // Offset for thread of read file,
+                                    SeekOrigin.Current);                                        // 1 thread for write -> (tCount - 1)
+
+                                if (parameters.showMessagesInConsole)
+                                {
+                                    // Console info:
+                                    lock (threadConsoleLock)
+                                    {
+                                        System.Console.CursorTop = parameters.consoleCursorTop;
+                                        System.Console.CursorLeft = 0;
+                                        System.Console.Write(" - {0}: Completed {1}%, {2:N}/{3:N} bytes",   // Thread #1: Completed 0%, 0/10000 bytes
+                                            Thread.CurrentThread.Name,
+                                            (threadProcessedSize * 100) / (inFile.Length / threadCount),
+                                            // / optimalThreadCount),  // % of compressed by thread devided to size that thread must compress
+                                            threadProcessedSize,
+                                            inFile.Length / threadCount);
+                                    }
+                                }
+                            }
+                            while (readBytes > 0);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("\nError: {0}", ex.Message);
+            }
+            finally
+            {
+                threadCount--;
+            }
+        }
+        #endregion
+
+        #region DECOMPRESS_BLOCK
+        /// <summary>
+        /// Decompresses archive to file using optimal number of threads
+        /// </summary>
+        /// <param name="archive">FileInfo of archive</param>
+        /// <param name="filePath">Full path to uncompressed file</param>
+        /// <param name="showMessagesInConsole">Should the output messages to the console</param>
+        /// <returns>Size of result file in bytes</returns>
         public static long Decompress(FileInfo archive, string filePath, bool showMessagesInConsole = true)
         {
             try
@@ -383,7 +385,6 @@ namespace GZipTest
                         threadPool[i].Name = "Read Thread #" + (i + 1);
                         threadPool[i].IsBackground = true;
                         threadPool[i].Start(readerParameters);
-                        //threadCount++;
                     }
                     // Waiting for all threads
                     for (int i = 0; i < optimalThreadCount - 1; i++)
@@ -399,9 +400,9 @@ namespace GZipTest
                     {
                         lock (threadConsoleLock)
                         {
-                            System.Console.WriteLine("\n\nDecompressed {0} from {1} to {2} bytes.",
+                            System.Console.WriteLine("\n\nDecompressed {0} from {1:N} to {2:N} bytes.",
                                 archive.Name,
-                                archive.Length.ToString(),
+                                archive.Length,
                                 writer.BytesWrited);
                         }
                     }
@@ -419,105 +420,10 @@ namespace GZipTest
                 GC.Collect();
             }
         }
-
-        private static void CompressThreadReader(object objParameters)
-        {
-            try
-            {
-                threadCount++;
-                ReaderParameters parameters;
-                if (objParameters != null)
-                {
-                    parameters = (ReaderParameters)objParameters;
-                }
-                else
-                {
-                    throw new Exception("Can't start compress-thread without parameters");
-                }
-                // While not end of file
-                using (FileStream inFile = parameters.originalFile.OpenRead())
-                {
-                    // Memory stream as buffer
-                    using (MemoryStream memory = new MemoryStream())
-                    {
-                        using (GZipStream gzip = new GZipStream(memory, CompressionMode.Compress, true))
-                        {
-                            int readBytes = 0;
-                            long threadCompressedSize = 0;
-                            do // while (inFile.Position < inFile.Length)
-                            {
-                                byte[] buffer = new byte[bufferSize];
-                                readBytes = inFile.Read(buffer, 0, buffer.Length);
-                                if (readBytes == 0)
-                                { 
-                                    break;
-                                }
-                                gzip.Write(buffer, 0, readBytes);
-
-                                // Create task: enqueue compressed bytes using memory.ToArray()
-                                // Try until task be enqueued
-                                bool isSuccess = false;
-                                do
-                                {
-                                    isSuccess = writer.EnqueueTask(memory.ToArray(), parameters.tid);
-                                } while (!isSuccess);
-
-                                // Reset memory stream
-                                byte[] memoryBuffer = memory.GetBuffer();
-                                Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
-                                memory.Position = 0;
-                                memory.SetLength(0);
-
-                                threadCompressedSize += readBytes;                                  // Calculate result compressed size by thread
-                                // Compressed => change offset to next
-                                // Offset for buffer = 4096: 
-                                // b(4096)*2 = 8192      b*3 = 12288      b*4 = 16384  
-                                //    3 threads  00000	04095	t1 | 2 threads  00000	04095	t1
-                                //               04096	08191	t2 |            04096	08191	t2
-                                //               08192	12287	t3 |            08192	12287	t1
-                                //               12288	16383	t1 |            12288	16383	t2
-                                //               16384	20479	t2 |            16384	20479	t1
-                                //    t1: 4095 -> 12288 = +8193    | t1: 4095 -> 8192 = +4097
-                                // Offset: [(threadCount - 1) * bufSize(4096)] + 1
-                                //   offset: (3-1)*4096 +1 = 8193 | offset: (2-1)*4096 +1 = 4097
-
-                                // Seek for new position
-                                //if (parameters.compressionMode == CompressionMode.Compress)
-                                //{
-                                //    inFile.Seek((optimalThreadCount - 2) * bufferSize + 1,              // Offset for thread of read file, 1 thread for write -> (tCount - 1)
-                                //        SeekOrigin.Current);
-                                //}
-                                if (parameters.showMessagesInConsole)
-                                {
-                                    // Console info:
-                                    lock (threadConsoleLock)
-                                    {
-                                        System.Console.CursorTop = parameters.consoleCursorTop;
-                                        System.Console.CursorLeft = 0;
-                                        System.Console.Write(" - {0}: Completed {1}%, {2}/{3} bytes",   // Thread #1: Completed 0%, 0/10000 bytes
-                                            Thread.CurrentThread.Name,
-                                            (threadCompressedSize * 100) / (inFile.Length / threadCount),
-                                            // / optimalThreadCount),  // % of compressed by thread devided to size that thread must compress
-                                            threadCompressedSize.ToString(),
-                                            inFile.Length / threadCount);
-                                    }
-                                }
-                            }
-                            while (readBytes > 0);                            
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("\nError: {0}", ex.Message);
-            }
-            finally
-            {
-                threadCount--;
-            }
-        }
-
+        /// <summary>
+        /// Thread for reading, decompressing data and sending it to Queue for writing to result file
+        /// </summary>
+        /// <param name="objParameters">Struct "ReaderParameters"</param>
         private static void DecompressThreadReader(object objParameters)
         {
             try
@@ -542,9 +448,9 @@ namespace GZipTest
                         {
                             int readBytes = 0;
                             long threadProcessedSize = 0;
+                            byte[] buffer = new byte[bufferSize];
                             do //while (inFile.Position < inFile.Length)
                             {
-                                byte[] buffer = new byte[bufferSize];
                                 //gzip.CopyTo(memory, bufferSize);
                                 //gzip.Read(buffer, 0, buffer.Length);
                                 readBytes = gzip.Read(buffer, 0, buffer.Length);
@@ -553,10 +459,7 @@ namespace GZipTest
                                     break;
                                 }
 
-                                //if (readBytes > 0)
-                                //{
                                 memory.Write(buffer, 0, readBytes);
-                                //}
 
                                 // Create task: enqueue compressed bytes using memory.ToArray()
                                 // Try until task be enqueued
@@ -571,6 +474,8 @@ namespace GZipTest
                                 Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
                                 memory.Position = 0;
                                 memory.SetLength(0);
+                                memory.Capacity = 0;
+                                memory.Flush();
 
                                 threadProcessedSize += readBytes;                                       // Calculate result compressed size by thread
                                 // Compressed => change offset to next
@@ -581,16 +486,14 @@ namespace GZipTest
                                 //               08192	12287	t3 |            08192	12287	t1
                                 //               12288	16383	t1 |            12288	16383	t2
                                 //               16384	20479	t2 |            16384	20479	t1
-                                //    t1: 4095 -> 12288 = +8193    | t1: 4095 -> 8192 = +4097
-                                // Offset: [(threadCount - 1) * bufSize(4096)] + 1
-                                //   offset: (3-1)*4096 +1 = 8193 | offset: (2-1)*4096 +1 = 4097
+                                //    t1: 4096 -> 12288 = +8192    | t1: 4096 -> 8192 = +4096
+                                // Offset: [(threadCount - 1) * bufSize(4096)]
+                                //   offset: (3-1)*4096 = 8192 | offset: (2-1)*4096 = 4096
 
                                 // Seek for new position
-                                //if (parameters.compressionMode == CompressionMode.Compress)
-                                //{
-                                //    inFile.Seek((optimalThreadCount - 2) * bufferSize + 1,            // Offset for thread of read file, 1 thread for write -> (tCount - 2)
-                                //        SeekOrigin.Current);
-                                //}
+                                inFile.Seek((optimalThreadCount - 2) * bufferSize,                      // Offset for thread of read file,
+                                    SeekOrigin.Current);                                                // 1 thread for write -> (tCount - 2)
+
                                 if (parameters.showMessagesInConsole)
                                 {
                                     // Console info:
@@ -598,11 +501,10 @@ namespace GZipTest
                                     {
                                         System.Console.CursorTop = parameters.consoleCursorTop;
                                         System.Console.CursorLeft = 0;
-                                        System.Console.Write(" - {0}: Completed {1}%, {2}/{3} bytes",   // Thread #1: Completed 0%, 0/10000 bytes
+                                        System.Console.Write(" - {0}: Completed {1}%, {2:N}/{3:N} bytes", // Thread #1: Completed 0%, 0/10 000.00 bytes
                                             Thread.CurrentThread.Name,
-                                            (threadProcessedSize * 100) / (inFile.Length / threadCount),
-                                            // / optimalThreadCount),  // % of compressed by thread devided to size that thread must compress
-                                            threadProcessedSize.ToString(),
+                                            (threadProcessedSize * 100) / (inFile.Length / threadCount),  // % of compressed by thread devided to size
+                                            threadProcessedSize,                                          // that thread must compress
                                             inFile.Length / threadCount);
                                     }
                                 }
@@ -621,218 +523,8 @@ namespace GZipTest
                 threadCount--;
             }
         }
+        #endregion
 
-        //---------------------------------------------------------------------------------------------------------------
-        // OLD CODE
-        /*
-        /// <summary>
-        /// Variable locking the file for writing
-        /// </summary>
-        private static object threadFileLock = new object();
-
-        /// <summary>
-        /// Using for calculating start offset for threads after first
-        /// </summary>
-        private static long compressedBufferSize = 0;
-
-        // File streams
-        private static FileStream outFile; // = File.OpenWrite(parameters.archivePath);            // Open created in main function archive file for write
-        private static GZipStream compressStream;
-
-        /// <summary>
-        /// compressStream file to archive using optimal number of threads
-        /// </summary>
-        /// <param name="fi">FileInfo of original file</param>
-        /// <param name="archivePath">Path to resulting archive</param>
-        /// <param name="showMessagesInConsole">Show compress info messages at console?</param>
-        /// <returns>Size of result archive in bytes</returns>
-        public static long Compress(FileInfo fi, string archivePath, bool showMessagesInConsole = true)
-        {
-            try
-            {
-                // Get the stream of the source file.
-                using (FileStream inFile = fi.OpenRead())
-                {
-                    // Prevent compressing hidden and already compressed files.
-                    if ((File.GetAttributes(fi.FullName) & FileAttributes.Hidden)
-                        != FileAttributes.Hidden & fi.Extension != ".gz")
-                    {
-                        if (showMessagesInConsole)
-                        {
-                            System.Console.WriteLine("Started compressing file \"{0}\"...", fi.Name);
-                        }
-                        // Create the compressed file.
-                        //outFile = File.OpenWrite(parameters.archivePath);            
-                        outFile = File.Create(archivePath);                                         // Created archive file for write
-                        compressStream = new GZipStream(outFile, CompressionMode.Compress);
-
-                        int currentCursorTop = Console.CursorTop;
-                        // Start first thread
-                        CompressParameters compressParameters =
-                            new CompressParameters(fi, archivePath,
-                                0, 0,
-                                currentCursorTop, showMessagesInConsole);
-                        Thread[] threadPool = new Thread[optimalThreadCount];
-                        threadPool[0] = new Thread(CompressThreadFunction);
-                        threadPool[0].Name = "Thread #1";
-                        threadPool[0].IsBackground = true;
-                        threadPool[0].Start(compressParameters);
-                        // Wait for compressed size from first thread for offset
-                        while (compressedBufferSize == 0)
-                        {
-                            Thread.Sleep(100);
-                        }
-                        // Next threads
-                        for (int i = 1; i < optimalThreadCount; i++)
-                        {
-                            // Parameters for threads
-                            compressParameters = new CompressParameters(fi, archivePath,
-                                i * bufferSize, i * compressedBufferSize,                           // Надо ли смещать на i*buff +1 ?
-                                currentCursorTop + i, showMessagesInConsole);
-
-                            threadPool[i] = new Thread(CompressThreadFunction);
-                            threadPool[i].Name = "Thread #" + (i + 1);
-                            threadPool[i].IsBackground = true;
-                            threadPool[i].Start(compressParameters);
-                            threadCount++;
-                        }
-                        // Waiting for all threads
-                        for (int i = 0; i < optimalThreadCount; i++)
-                        {
-                            threadPool[i].Join();
-                        }
-                        // Result
-                        if (showMessagesInConsole)
-                        {
-                            System.Console.WriteLine("\nCompressed {0} from {1} to {2} bytes.",
-                                fi.Name,
-                                fi.Length.ToString(),
-                                outFile.Length.ToString());
-                        }
-                        return outFile.Length;
-                    }
-                    else
-                    {
-                        throw new Exception("File is hidden or already compressed");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-            finally
-            {
-                // Closing and memory free area
-                if (compressStream != null)
-                {
-                    compressStream.Close();
-                    compressStream.Dispose();
-                }
-                if (outFile != null)
-                {
-                    outFile.Close();
-                    outFile.Dispose();
-                }
-                GC.Collect();
-            }
-        }
-        */
-        /*
-        // Algorithm:
-        // - Open read and write files in streams
-        // - Read to buffer
-        // - compressStream
-        // - Write to result file
-        // - Shift the position of the read and write streams
-        // - Retry while not end of file
-        private static void CompressThreadFunction(object objParameters)
-        {
-            try
-            {
-                CompressParameters parameters;
-                if (objParameters != null)
-                {
-                    parameters = (CompressParameters)objParameters;
-                }
-                else
-                {
-                    throw new Exception("Can't start compress thread without parameters");
-                }
-                using (FileStream inFile = parameters.originalFile.OpenRead())
-                {
-                    long threadWriteOffset = parameters.startWriteOffset;
-
-                    inFile.Seek(parameters.startReadOffset, SeekOrigin.Begin);              // Start offset for thread from begin of read file
-                    //FileStream outFile = File.OpenWrite(parameters.archivePath);          // Open created in main function archive file for write
-                    //outFile.Seek(parameters.startWriteOffset, SeekOrigin.Begin);            // Start offset for thread from begin of write file
-                    //GZipStream Compress = new GZipStream(outFile, CompressionMode.Compress);
-
-                    //long startPosition = parameters.startWriteOffset;
-                    long lastPosition = parameters.startWriteOffset;
-                    long newPosition = 0;
-                    long threadProcessedSize = 0;
-                    long writeOffset = 0;
-                    int readBytes = 0;
-                    // While not end of file
-                    while (inFile.Position < inFile.Length)
-                    {
-                        byte[] buffer = new byte[bufferSize];
-                        readBytes = inFile.Read(buffer, 0, buffer.Length);
-
-                        // Lock for writing file
-                        lock (threadFileLock)
-                        {
-                            outFile.Position = lastPosition;                                // Load value of stream position for this thread
-                            outFile.Seek(writeOffset, SeekOrigin.Current);                  // Offset for thread from last position of write file
-                            compressStream.Write(buffer, 0, buffer.Length);                 // Compress buffer and save to result file
-                            newPosition = outFile.Position;                                 // Save value of stream position for this thread
-                        }
-                        compressedBufferSize = newPosition - lastPosition;                  // Calculate offset to global variable
-                        lastPosition = newPosition;                                         // Save value of stream position for this thread
-                        // Compressed => change offset to next
-                        // Offset for buffer = 4096: 
-                        // b(4096)*2 = 8192      b*3 = 12288      b*4 = 16384  
-                        //    4 threads  00000	04095	t1 | 2 threads  00000	04095	t1
-                        //               04096	08191	t2 |            04096	08191	t2
-                        //               08192	12287	t3 |            08192	12287	t1
-                        //               12288	16383	t4 |            12288	16383	t2
-                        //               16384	20479	t1 |            16384	20479	t1
-                        //    t1: 4095 -> 16384 = +12289   | t1: 4095 -> 8192 = +4097
-                        // Offset: [(threadCount - 1) * bufSize(4096)] + 1
-                        //   offset: (4-1)*4096 +1 = 12289 | offset: (2-1)*4096 +1 = 4097
-                        writeOffset = (optimalThreadCount - 1) * compressedBufferSize + 1;  // Offset for thread of write file
-                        threadProcessedSize += readBytes;                                  // Calculate result compressed size by thread
-                        inFile.Seek((optimalThreadCount - 1) * bufferSize + 1,              // Offset for thread of read file
-                            SeekOrigin.Current);
-                        if (parameters.showMessagesInConsole)
-                        {
-                            // Console info:
-                            lock (threadConsoleLock)
-                            {
-                                System.Console.CursorTop = parameters.consoleCursorTop;
-                                System.Console.CursorLeft = 0;
-                                System.Console.Write(" - {0}: Completed {1}%, {2}/{3} bytes",   // Thread #1: Completed 0%, 0/10000 bytes
-                                    Thread.CurrentThread.Name,
-                                    (threadProcessedSize * 100) / (inFile.Length / threadCount),
-                                    // / optimalThreadCount),  // % of compressed by thread devided to size that thread must compress
-                                    threadProcessedSize.ToString(),
-                                    inFile.Length.ToString());
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("\nError: {0}", ex.Message);
-            }
-            finally
-            {
-                threadCount--;
-                //
-            }
-        }
-        */
+        #endregion
     }
 }

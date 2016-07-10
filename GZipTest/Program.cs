@@ -50,9 +50,38 @@ namespace GZipTest
 
         static int Main(string[] args)
         {
+            #region Block for manual debugging
             /*
-            string f1 = @"D:\dump\uita2.mp3.gz";
-            string f2 = @"D:\dump\uita3.mp3";
+            string f1 = @"D:\dump\uita.mp3";
+            // Check files existance
+            FileInfo fi01 = new FileInfo(f1);
+            if (!fi01.Exists)
+            {
+                System.Console.WriteLine("Error: file \"{0}\" not found.", f1);
+            }
+            GZip.DefaultCompress(fi01);
+            string f2 = @"D:\dump\uita.mp3.gz";
+            // Check files existance
+            FileInfo fi02 = new FileInfo(f2);
+            if (!fi02.Exists)
+            {
+                System.Console.WriteLine("Error: file \"{0}\" not found.", f1);
+            }
+            GZip.DefaultDecompress(fi02);
+
+            return 0;
+            */
+            /*
+            string f1 = @"D:\dump\1.txt";
+            string f2 = @"D:\dump\2.txt";
+            //string f2 = @"D:\dump\2.txt.gz";
+            string f3 = @"D:\dump\3.txt";
+            //string f1 = @"D:\dump\1.jpg";
+            //string f2 = @"D:\dump\2.jpg.gz";
+            //string f3 = @"D:\dump\3.jpg";
+            //string f1 = @"D:\dump\uita.mp3";
+            //string f2 = @"D:\dump\uita_1.mp3.gz";
+            //string f3 = @"D:\dump\uita_2.mp3";
             //string f1 = @"D:\dump\fmmc2.mp3.gz";
             //string f2 = @"D:\dump\fmmc3.mp3";
             //string f1 = @"D:\dump\fmmc.mp3";
@@ -65,22 +94,23 @@ namespace GZipTest
             }
             try
             {
-                //long archiveLength = GZip.Compress(fi01, f2);
-                long archiveLength = GZip.Decompress(fi01, f2);
+                long archiveLength = GZip.Compress(fi01, f2);
+                //FileInfo fi02 = new FileInfo(f2);
+                //long archiveLength = GZip.Decompress(fi02, f3);
             }
             catch (Exception ex)
             {
                 System.Console.WriteLine("Error: {0}", ex.Message);
             }
             return 0;
-            
             */
+            #endregion
 
-
+            // Program block
             const string standartProgramCmd = "Standart program usage: \n" +
                                               "  GZipTest.exe compress [file_name] [archive_name] \n" +
                                               "  GZipTest.exe decompress [archive_name] [file_name]";
-            //int StatusCode = 0;
+            //int StatusCode = 0;       // We can extend returning error codes
             bool IsError = false;
 
             switch (args.Length)
@@ -99,12 +129,6 @@ namespace GZipTest
                     break;
                 case (int)Args.All:
                     string command = args[0];
-                    if ((command != "compress") && (command != "decompress"))
-                    {
-                        System.Console.WriteLine("Error: Unknown command \"" + command + "\". \n" + standartProgramCmd);
-                        IsError = true;
-                        break;
-                    }
                     string inFile = args[1];
                     string outFile = args[2];
                     // Check files existance
@@ -115,8 +139,8 @@ namespace GZipTest
                         IsError = true;
                         break;
                     }
-                    // compressStream/Decompress
-                    switch (command)
+                    // Compress/Decompress (or any new commands)
+                    switch (command.ToLower())      // "COMPRESS" to "compress" and etc
                     {
                         case "compress":
                             try
@@ -140,7 +164,9 @@ namespace GZipTest
                             break;
                         // Any new commands
                         default:
-                            // no command
+                            // Unknown command
+                            System.Console.WriteLine("Error: Unknown command \"" + command + "\". \n" + standartProgramCmd);
+                            IsError = true;
                             break;
                     }
                     break;
@@ -153,12 +179,3 @@ namespace GZipTest
         }
     }
 }
-
-/*
- TODO:
- * compress
- * decompress
- * многопоточность
- * обработка больших файлов
- + console arguments
- */
