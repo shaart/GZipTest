@@ -11,7 +11,7 @@ namespace GZipTest
     /// <summary>
     /// Writing thread with queue (FIFO)
     /// </summary>
-    class WriterQueue : IDisposable
+    class DebugWriterQueue : IDisposable
     {
         /// <summary>
         /// Signal for queue
@@ -36,6 +36,10 @@ namespace GZipTest
         /// </summary>
         int readThreadCount = 0;
         /// <summary>
+        /// Number of processed tasks
+        /// </summary>
+        int numberOfProcessedTasks = 0;
+        /// <summary>
         /// "Local id" (number in my thread pool) of thread which must writing in result file
         /// </summary>
         int numberOfWaitingThread = 0;
@@ -48,7 +52,7 @@ namespace GZipTest
         /// Property. Contains how many bytes already writed to file (current result file size)
         /// </summary>
         public long BytesWrited { get { return bytesWrited; } }
-        
+
         #region DEBUG VARIABLES
         // For debug
         private int tasksCount = 0;
@@ -63,7 +67,7 @@ namespace GZipTest
         /// <param name="consoleCursorTop">Console cursor row for writing info of this thread</param>
         /// <param name="showMessagesInConsole">Should the output messages to the console</param>
         /// <param name="consoleLock">object for console lock</param>
-        public WriterQueue(string resultFilePath, int readThreadCount, int consoleCursorTop, bool showMessagesInConsole, object consoleLock)
+        public DebugWriterQueue(string resultFilePath, int readThreadCount, int consoleCursorTop, bool showMessagesInConsole, object consoleLock)
         {
             this.readThreadCount = readThreadCount;
             this.consoleLocker = consoleLock;
@@ -150,7 +154,6 @@ namespace GZipTest
                     {
                         byte[] task = null;
 
-                        tasksCount = tasks.Count;                                       // For debug
                         lock (locker)
                         {
                             if (tasks.Count > 0)
@@ -163,28 +166,28 @@ namespace GZipTest
                                 }
                             }
                         }
-                        tasksCount = tasks.Count;                                       // For debug
                         if (task != null)
                         {
                             outFile.Write(task, 0, task.Length);                        // Write compressed bytes to file
-                            bytesWrited = outFile.Length;                               // Save the value of current archive length
-                            /*
-                            // For debug
-                            using (var outFile2 = File.OpenWrite("dump_readed_tasks.txt"))
-                            {
-                                outFile2.Seek(0, SeekOrigin.End);
-                                outFile2.Write(task, 0, task.Length);
-                            }
-                            */
+                            bytesWrited += task.Length;
+                            numberOfProcessedTasks++;
                             if (parameters.showMessagesInConsole)
                             {
                                 lock (consoleLocker)
                                 {
                                     System.Console.CursorTop = parameters.consoleCursorTop;
                                     System.Console.CursorLeft = 0;
-                                    System.Console.Write(" - {0}: Writed {1:N} bytes",   // - Write Thread: Writed 1 000.00 bytes
-                                        Thread.CurrentThread.Name,
-                                        outFile.Length);
+                                    //System.Console.Write("Processed tasks: {0}. Part of current task: {1} => Writed to file.\n", numberOfProcessedTasks, task[0].ToString());
+                                    System.Console.Write("File: {0}. Processed tasks: {1}\n", outFile.Name, numberOfProcessedTasks);
+                                    //System.Console.Write("String writed to file: " + Encoding.Default.GetString(task));
+                                    /*
+                                    for (int i = 0; i < task.Length; i++)
+                                    {
+                                        Encoding.Default.GetString(task);
+                                        System.Console.Write(task[i].ToString() + " ");
+                                    }
+                                    */
+                                    //System.Console.Write("=> Writed to file.\n");
                                 }
                             }
                         }

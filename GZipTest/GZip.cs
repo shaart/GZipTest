@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
+//using System.Threading.Tasks;
 using System.IO;                        // File, FileInfo, FileStream
 using System.IO.Compression;            // GZipStream
 using System.Threading;                 // Thread
@@ -263,7 +263,9 @@ namespace GZipTest
                                 {
                                     break;
                                 }
-                                gzip.Write(buffer, 0, readBytes);
+                                byte[] readBuffer = new byte[readBytes];
+                                Array.Copy(buffer, 0, readBuffer, 0, readBytes);                // Copy 64 Kb array to array with length = read bytes
+                                gzip.Write(readBuffer, 0, readBytes);
 
                                 /*
                                 // For debug
@@ -458,8 +460,9 @@ namespace GZipTest
                                 {
                                     break;
                                 }
-
-                                memory.Write(buffer, 0, readBytes);
+                                byte[] readBuffer = new byte[readBytes];
+                                Array.Copy(buffer, 0, readBuffer, 0, readBytes);                // Copy 64 Kb array to array with length = read bytes
+                                memory.Write(readBuffer, 0, readBytes);
 
                                 // Create task: enqueue compressed bytes using memory.ToArray()
                                 // Try until task be enqueued
