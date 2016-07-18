@@ -92,7 +92,7 @@ namespace GZipTest
             //Decompress(@"d:\dump\debug_compressed.txt.gz", @"d:\dump\debug_decompressed.txt");
             //Decompress(@"d:\dump\debug_compressed64.txt.gz", @"d:\dump\debug_decompressed64.txt");
             //Decompress(@"d:\dump\debug_compressed_big.txt.gz", @"d:\dump\debug_decompressed_big.txt");
-            Decompress(@"d:\dump\uita_comp.gz", @"d:\dump\uita_decomp.mp3");
+            //Decompress(@"d:\dump\uita_comp.gz", @"d:\dump\uita_decomp.mp3");
             //Decompress(@"d:\dump\debug_original_defaultcompress.txt", @"d:\dump\debug_decompressed.txt");
             //FileInfo inFileInfo = new FileInfo(@"d:\dump\debug_compressed.txt");
             //GZip.DefaultDecompress(inFileInfo);
