@@ -72,9 +72,9 @@ namespace GZipTest
         /// </summary>
         private static object threadConsoleLock = new object();
         /// <summary>
-        /// Buffer for GZip: 64 KB
+        /// Buffer for GZip: 128 KB
         /// </summary>
-        const int bufferSize = 64 * 1024;
+        const int bufferSize = 128 * 1024;
         /// <summary>
         /// For multi-threading: optimal count of thread. 
         /// User can edit this value at system variables
@@ -220,7 +220,7 @@ namespace GZipTest
             }
             finally
             {
-                // Closing and memory free area
+                // Closing and compressedMemory free area
                 //writer.Dispose();
                 GC.Collect();
             }
@@ -250,24 +250,30 @@ namespace GZipTest
                     // Memory stream as buffer
                     using (MemoryStream memory = new MemoryStream())
                     {
-                        using (GZipStream gzip = new GZipStream(memory, CompressionMode.Compress, true))
+                        int readBytes = 0;
+                        byte[] buffer = new byte[bufferSize];
+                        long threadProcessedSize = 0;
+                        long threadWritedToMemorySize = 0;                                      //debug
+                        do // while (inFile.Position < inFile.Length)
                         {
-                            int readBytes = 0;
-                            long threadProcessedSize = 0;
-                            long threadWritedToMemorySize = 0;                                      //debug
-                            byte[] buffer = new byte[bufferSize];
-                            do // while (inFile.Position < inFile.Length)
+                            readBytes = inFile.Read(buffer, 0, buffer.Length);
+                            if (readBytes == 0)
                             {
-                                readBytes = inFile.Read(buffer, 0, buffer.Length);
-                                if (readBytes == 0)
-                                {
-                                    break;
-                                }
-                                byte[] readBuffer = new byte[readBytes];
-                                Array.Copy(buffer, 0, readBuffer, 0, readBytes);                // Copy 64 Kb array to array with length = read bytes
-                                gzip.Write(readBuffer, 0, readBytes);
+                                break;
+                            }
+                            byte[] readBuffer = new byte[readBytes];
+                            Array.Copy(buffer, 0, readBuffer, 0, readBytes);                // Copy 64 Kb array to array with length = read bytes
 
-                                /*
+                            using (GZipStream gzip = new GZipStream(memory, CompressionMode.Compress, true))
+                            {
+                                gzip.Write(readBuffer, 0, readBytes);
+                            } // END OF GZipStream (gzip)
+                            if (memory.Length == 0)
+                            {
+                                throw new Exception("Data did not compressed");
+                            }
+                            #region COMMENTED
+                            /*
                                 // For debug
                                 using (var outFile2 = File.OpenWrite("dump_readed.txt"))
                                 {
@@ -275,70 +281,62 @@ namespace GZipTest
                                     outFile2.Write(buffer, 0, readBytes);
                                 }
                                 */
-                                // Create task: enqueue compressed bytes using memory.ToArray()
-                                // Try until task be enqueued
-                                bool isSuccess = false;
-                                do
-                                {
-                                    // Bug: queue don't process last data
-                                    isSuccess = writer.EnqueueTask(memory.ToArray(), parameters.tid);
-                                    //isSuccess = writer.EnqueueTask(buffer, parameters.tid);       // For debug
-                                } while (!isSuccess);
+                            // Create task: enqueue compressed bytes using compressedMemory.ToArray()
+                            // Try until task be enqueued
+                            #endregion
+                            bool isSuccess = false;
+                            do
+                            {
+                                // Bug: queue don't process last data
+                                isSuccess = writer.EnqueueTask(memory.ToArray(), parameters.tid);
+                                //isSuccess = writer.EnqueueTask(buffer, parameters.tid);       // For debug
+                            } while (!isSuccess);
 
-                                // Reset memory stream
-                                byte[] memoryBuffer = memory.GetBuffer();
-                                /*
-                                // For debug
-                                using (var outFile3 = File.OpenWrite("dump_memory.txt"))
+                            // Reset compressedMemory stream
+                            byte[] memoryBuffer = memory.GetBuffer();
+                            threadWritedToMemorySize += memoryBuffer.Length;                    // Calculate
+                            Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
+                            memory.Position = 0;
+                            memory.SetLength(0);
+                            memory.Capacity = 0;
+                            memory.Flush();
+
+                            threadProcessedSize += readBytes;                                  // Calculate result compressed size by thread
+                            // Compressed => change offset to next
+                            // Offset for buffer = 4096: 
+                            // b(4096)*2 = 8192      b*3 = 12288      b*4 = 16384  
+                            //    3 threads  00000	04095	t1 | 2 threads  00000	04095	t1
+                            //               04096	08191	t2 |            04096	08191	t2
+                            //               08192	12287	t3 |            08192	12287	t1
+                            //               12288	16383	t1 |            12288	16383	t2
+                            //               16384	20479	t2 |            16384	20479	t1
+                            //    t1: 4096 -> 12288 = +8192    | t1: 4096 -> 8192 = +4096
+                            // Offset: [(threadCount - 1) * bufSize(4096)]
+                            //   offset: (3-1)*4096 = 8192     | offset: (2-1)*4096 = 4096
+                            // Seek for new position
+                            //inFile.Seek((optimalThreadCount - 2) * bufferSize,              // Offset for thread of read file,
+                            //    SeekOrigin.Current);                                        // 1 thread for write -> (tCount - 1)
+                            inFile.Position = inFile.Position + (optimalThreadCount - 2) * bufferSize;
+
+                            if (parameters.showMessagesInConsole)
+                            {
+                                // Console info:
+                                lock (threadConsoleLock)
                                 {
-                                    outFile3.Seek(0, SeekOrigin.End);
-                                    outFile3.Write(memoryBuffer, 0, memoryBuffer.Length);
+                                    System.Console.CursorTop = parameters.consoleCursorTop;
+                                    System.Console.CursorLeft = 0;
+                                    System.Console.Write(" - {0}: Completed {1}%, {2:N}/{3:N} bytes",   // Thread #1: Completed 0%, 0/10000 bytes
+                                        Thread.CurrentThread.Name,
+                                        (threadProcessedSize * 100) / (inFile.Length / threadCount),
+                                        // / optimalThreadCount),  // % of compressed by thread devided to size that thread must compress
+                                        threadProcessedSize,
+                                        inFile.Length / threadCount);
                                 }
-                                */
-                                threadWritedToMemorySize += memoryBuffer.Length;                    // Calculate
-                                Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
-                                memory.Position = 0;
-                                memory.SetLength(0);
-                                memory.Capacity = 0;
-                                memory.Flush();
-
-                                threadProcessedSize += readBytes;                                  // Calculate result compressed size by thread
-                                // Compressed => change offset to next
-                                // Offset for buffer = 4096: 
-                                // b(4096)*2 = 8192      b*3 = 12288      b*4 = 16384  
-                                //    3 threads  00000	04095	t1 | 2 threads  00000	04095	t1
-                                //               04096	08191	t2 |            04096	08191	t2
-                                //               08192	12287	t3 |            08192	12287	t1
-                                //               12288	16383	t1 |            12288	16383	t2
-                                //               16384	20479	t2 |            16384	20479	t1
-                                //    t1: 4096 -> 12288 = +8192    | t1: 4096 -> 8192 = +4096
-                                // Offset: [(threadCount - 1) * bufSize(4096)]
-                                //   offset: (3-1)*4096 = 8192     | offset: (2-1)*4096 = 4096
-
-                                // Seek for new position
-                                inFile.Seek((optimalThreadCount - 2) * bufferSize,              // Offset for thread of read file,
-                                    SeekOrigin.Current);                                        // 1 thread for write -> (tCount - 1)
-
-                                if (parameters.showMessagesInConsole)
-                                {
-                                    // Console info:
-                                    lock (threadConsoleLock)
-                                    {
-                                        System.Console.CursorTop = parameters.consoleCursorTop;
-                                        System.Console.CursorLeft = 0;
-                                        System.Console.Write(" - {0}: Completed {1}%, {2:N}/{3:N} bytes",   // Thread #1: Completed 0%, 0/10000 bytes
-                                            Thread.CurrentThread.Name,
-                                            (threadProcessedSize * 100) / (inFile.Length / threadCount),
-                                            // / optimalThreadCount),  // % of compressed by thread devided to size that thread must compress
-                                            threadProcessedSize,
-                                            inFile.Length / threadCount);
-                                    }
-                                }
-                            }
-                            while (readBytes > 0);
-                        }
-                    }
-                }
+                            } // END OF if
+                        } // END OF WHILE
+                        while (readBytes > 0);
+                    } // END OF MemoryStream (memory)
+                } // END OF FileStream (inFile)
             }
             catch (Exception ex)
             {
@@ -417,7 +415,7 @@ namespace GZipTest
             }
             finally
             {
-                // Closing and memory free area
+                // Closing and compressedMemory free area
                 //writer.Dispose();
                 GC.Collect();
             }
@@ -428,6 +426,10 @@ namespace GZipTest
         /// <param name="objParameters">Struct "ReaderParameters"</param>
         private static void DecompressThreadReader(object objParameters)
         {
+            // String.IndexOf search result: -1
+            const int NOT_FOUND = -1;
+            // String bytes of compress block start
+            const string COMPRESSED_BLOCK_START = "‹\b\0\0\0\0\0\0";
             try
             {
                 threadCount++;
@@ -443,44 +445,177 @@ namespace GZipTest
                 // While not end of file
                 using (FileStream inFile = parameters.originalFile.OpenRead())
                 {
-                    // Memory stream as buffer
-                    using (MemoryStream memory = new MemoryStream())
-                    {
-                        using (GZipStream gzip = new GZipStream(inFile, CompressionMode.Decompress, true))
+                    int nextLeftBlockNumber = -1;   // For multithread
+                    int nextRightBlockNumber = 0;   // For multithread
+                    int leftBlockNumber = -1;
+                    int rightBlockNumber = 0;
+                    int firstIndex = NOT_FOUND;
+                    int secondIndex = NOT_FOUND;
+                    long threadProcessedSize = 0;
+                    do // START OF MAIN WHILE: 
+                    {  //   inFile.Position < inFile.Length
+                        // Memory stream as buffer
+                        using (MemoryStream compressedMemory = new MemoryStream())
                         {
-                            int readBytes = 0;
-                            long threadProcessedSize = 0;
-                            byte[] buffer = new byte[bufferSize];
-                            do //while (inFile.Position < inFile.Length)
-                            {
-                                //gzip.CopyTo(memory, bufferSize);
-                                //gzip.Read(buffer, 0, buffer.Length);
-                                readBytes = gzip.Read(buffer, 0, buffer.Length);
-                                if (readBytes == 0)
+                            firstIndex = NOT_FOUND;
+                            secondIndex = NOT_FOUND;
+                            int readCompressedBytes = 0;
+                            nextLeftBlockNumber = nextLeftBlockNumber + (optimalThreadCount - 1);   // first loop: 0 => at multithread change to threads offset (threadNum)
+                            nextRightBlockNumber = nextRightBlockNumber + (optimalThreadCount - 1); // first loop: 1 => see line above ^
+                            // get compressed block for decompress
+                            byte[] compressedBuffer = new byte[bufferSize];
+                            string compressedBufferString = "";
+                            do // START OF WHILE: (leftBlockNumber != nextLeftBlockNumber) || (rightBlockNumber != nextRightBlockNumber) && inFile.Position < inFile.Length 
+                            {  // => While not found and not end of file
+                                // For save buffer length (not using more and more memory)
+                                if (compressedBufferString != "")                       // second loop
                                 {
-                                    break;
-                                }
-                                byte[] readBuffer = new byte[readBytes];
-                                Array.Copy(buffer, 0, readBuffer, 0, readBytes);                // Copy 64 Kb array to array with length = read bytes
-                                memory.Write(readBuffer, 0, readBytes);
+                                    if (secondIndex == NOT_FOUND)
+                                    {   // need to expand memory adding new data
+                                        // read new portion of data and add to string
+                                        readCompressedBytes = inFile.Read(compressedBuffer, 0, compressedBuffer.Length);
+                                        compressedBufferString += Encoding.Default.GetString(compressedBuffer);
+                                        compressedMemory.Write(compressedBuffer, 0, readCompressedBytes);                   // save buffer to memory
+                                    }
+                                    else
+                                    {   // read to next block
+                                        compressedBufferString = compressedBufferString.Remove(0, secondIndex - 1);         // remove [1block] from string. Save [2block+] data
+                                        var compMemBuff = compressedMemory.GetBuffer();
+                                        // clear compressed memory
+                                        Array.Clear(compMemBuff, 0, compMemBuff.Length);
+                                        compressedMemory.SetLength(0);
+                                        compressedMemory.Position = 0;
+                                        compressedMemory.Capacity = 0;
+                                        compressedMemory.Flush();
+                                        // write to compressed memory remainded block
+                                        var bufferRemainder = Encoding.Default.GetBytes(compressedBufferString);
+                                        compressedMemory.Write(bufferRemainder, 0, bufferRemainder.Length);
+                                        // change indexes and numbers (set Right -> Left)
+                                        firstIndex = secondIndex;
+                                        leftBlockNumber = rightBlockNumber;
+                                        // read new portion of data and add to string
+                                        readCompressedBytes = inFile.Read(compressedBuffer, 0, compressedBuffer.Length);
+                                        compressedBufferString += Encoding.Default.GetString(compressedBuffer);
+                                        compressedMemory.Write(compressedBuffer, 0, readCompressedBytes);                   // save buffer to memory
 
-                                // Create task: enqueue compressed bytes using memory.ToArray()
+                                    }
+                                }
+                                else // first loop
+                                {
+                                    readCompressedBytes = inFile.Read(compressedBuffer, 0, compressedBuffer.Length);        // read to buffer
+                                    compressedMemory.Write(compressedBuffer, 0, readCompressedBytes);                       // save buffer to memory
+                                    compressedBufferString = Encoding.Default.GetString(compressedBuffer);                  // get string from buffer for search
+                                    firstIndex = compressedBufferString.IndexOf(COMPRESSED_BLOCK_START);                    // get start of compressed block (magic number)
+                                    while (firstIndex == NOT_FOUND && inFile.Position < inFile.Length)
+                                    {
+                                        //Array.Resize(ref compressedBuffer, compressedBuffer.Length * 2);
+                                        //byte[] newBuffer = new byte[bufferSize];
+                                        //readCompressedBytes = inFile.Read(newBuffer, 0, newBuffer.Length);
+                                        readCompressedBytes = inFile.Read(compressedBuffer, 0, compressedBuffer.Length);    // read new data to buffer
+                                        compressedBufferString += Encoding.Default.GetString(compressedBuffer);             // add second part to first
+                                        firstIndex = compressedBufferString.IndexOf(COMPRESSED_BLOCK_START);
+                                        compressedMemory.Write(compressedBuffer, 0, readCompressedBytes);                   // save buffer to memory
+                                    }; // END OF WHILE
+                                    if (firstIndex != NOT_FOUND) // For multithread
+                                    {
+                                        leftBlockNumber++;
+                                    }
+                                }
+                                secondIndex = compressedBufferString.IndexOf(COMPRESSED_BLOCK_START, firstIndex + 1);       // get start of next compressed block (magic number)
+                                while (secondIndex == NOT_FOUND && inFile.Position < inFile.Length)
+                                {
+                                    //compressedMemory.Write(compressedBuffer, 0, readCompressedBytes);
+                                    readCompressedBytes = inFile.Read(compressedBuffer, 0, compressedBuffer.Length);
+                                    compressedBufferString += Encoding.Default.GetString(compressedBuffer);                 // add second part to first
+                                    secondIndex = compressedBufferString.IndexOf(COMPRESSED_BLOCK_START, firstIndex + 1);
+                                    compressedMemory.Write(compressedBuffer, 0, readCompressedBytes);
+                                }; // END OF WHILE
+                                if ((secondIndex != NOT_FOUND) && (inFile.Position < inFile.Length)) // For multithread
+                                {
+                                    rightBlockNumber++;
+                                    // inFile -> second block length
+                                    //inFile.Position = inFile.Position - (readCompressedBytes - secondIndex);              // roll back inFile stream to start of second block 
+                                    //compressedBufferString.Length
+                                }
+                                //else // not found => end of file
+                                //{
+                                //    //inFile.Position = inFile.Position - (compressedBufferString.Length - firstIndex);   // roll back inFile stream to start of second block
+                                //}
+                            } // END OF WHILE
+                            // While not found and not end of file
+                            while (((leftBlockNumber != nextLeftBlockNumber) || (rightBlockNumber != nextRightBlockNumber)) && (inFile.Position < inFile.Length));
+                            if (((leftBlockNumber == nextLeftBlockNumber) && (rightBlockNumber == nextRightBlockNumber)) || (inFile.Position == inFile.Length))
+                            {
+                                // success => cut the block and put in memory
+                                var compMemBuff = compressedMemory.GetBuffer();
+                                // clear compressed memory
+                                Array.Clear(compMemBuff, 0, compMemBuff.Length);
+                                compressedMemory.SetLength(0);
+                                compressedMemory.Position = 0;
+                                compressedMemory.Capacity = 0;
+                                compressedMemory.Flush();
+                                // write to compressed memory remainded block
+                                if (secondIndex != NOT_FOUND)
+                                {
+                                    // remove all after [2block] from string
+                                    compressedBufferString = compressedBufferString.Remove(secondIndex, compressedBufferString.Length - secondIndex);
+                                    if (inFile.Position > (readCompressedBytes - secondIndex + 1))
+                                    {
+                                        inFile.Position = inFile.Position - (readCompressedBytes - secondIndex + 1);                    // roll back inFile stream to start of second block
+                                    }
+                                }
+                                compressedBufferString = compressedBufferString.Remove(0, firstIndex);                                  // remove all before [1block] from string
+                                var bufferRemainder = Encoding.Default.GetBytes(compressedBufferString);
+                                compressedMemory.Write(bufferRemainder, 0, bufferRemainder.Length);
+                            }
+                            // Compressed block found
+                            using (MemoryStream decompressedMemory = new MemoryStream())
+                            {
+                                compressedMemory.Position = 0;
+                                //using (GZipStream gzip = new GZipStream(inFile, CompressionMode.Decompress, true))
+                                using (GZipStream gzip = new GZipStream(compressedMemory, CompressionMode.Decompress, true))
+                                {
+                                    gzip.CopyTo(decompressedMemory);
+                                } // END OF USING GZipStream (gzip)
+                                #region COMMENTED
+                                /*
+                                    int readBytes = 0;
+                                    long threadProcessedSize = 0;
+                                    byte[] buffer = new byte[bufferSize];
+                                    //gzip.CopyTo(compressedMemory, bufferSize);
+                                    //gzip.Read(buffer, 0, buffer.Length);
+                                    readBytes = gzip.Read(buffer, 0, buffer.Length);
+                                    if (readBytes == 0)
+                                    {
+                                        break;
+                                    }
+                                    byte[] readBuffer = new byte[readBytes];
+                                    Array.Copy(buffer, 0, readBuffer, 0, readBytes);                // Copy 64 Kb array to array with length = read bytes
+                                    memory.Write(readBuffer, 0, readBytes);
+                                    */
+                                #endregion
+                                // Create task: enqueue compressed bytes using compressedMemory.ToArray()
                                 // Try until task be enqueued
                                 bool isSuccess = false;
                                 do
                                 {
-                                    isSuccess = writer.EnqueueTask(memory.ToArray(), parameters.tid);
+                                    isSuccess = writer.EnqueueTask(decompressedMemory.ToArray(), parameters.tid);
                                 } while (!isSuccess);
-
-                                // Reset memory stream
-                                byte[] memoryBuffer = memory.GetBuffer();
-                                Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
-                                memory.Position = 0;
-                                memory.SetLength(0);
-                                memory.Capacity = 0;
-                                memory.Flush();
-
-                                threadProcessedSize += readBytes;                                       // Calculate result compressed size by thread
+                                #region COMMENTED
+                                // Reset compressedMemory stream
+                                //byte[] memoryBuffer = decompressedMemory.GetBuffer();
+                                //Array.Clear(memoryBuffer, 0, memoryBuffer.Length);
+                                //decompressedMemory.Position = 0;
+                                //decompressedMemory.SetLength(0);
+                                //decompressedMemory.Capacity = 0;
+                                //decompressedMemory.Flush();
+                                #endregion
+                                threadProcessedSize += readCompressedBytes; // readBytes;                   // Calculate result compressed size by thread
+                                if (threadProcessedSize > inFile.Length)
+                                {
+                                    threadProcessedSize = inFile.Length;
+                                }
+                                #region Offset
                                 // Compressed => change offset to next
                                 // Offset for buffer = 4096: 
                                 // b(4096)*2 = 8192      b*3 = 12288      b*4 = 16384  
@@ -492,10 +627,11 @@ namespace GZipTest
                                 //    t1: 4096 -> 12288 = +8192    | t1: 4096 -> 8192 = +4096
                                 // Offset: [(threadCount - 1) * bufSize(4096)]
                                 //   offset: (3-1)*4096 = 8192 | offset: (2-1)*4096 = 4096
-
+                                #endregion
                                 // Seek for new position
-                                inFile.Seek((optimalThreadCount - 2) * bufferSize,                      // Offset for thread of read file,
-                                    SeekOrigin.Current);                                                // 1 thread for write -> (tCount - 2)
+                                //inFile.Seek((optimalThreadCount - 2) * bufferSize,                        // Offset for thread of read file,
+                                //    SeekOrigin.Current);                                                  // 1 thread for write -> (tCount - 2)
+                                inFile.Position = inFile.Position + (optimalThreadCount - 2) * bufferSize;
 
                                 if (parameters.showMessagesInConsole)
                                 {
@@ -504,17 +640,17 @@ namespace GZipTest
                                     {
                                         System.Console.CursorTop = parameters.consoleCursorTop;
                                         System.Console.CursorLeft = 0;
-                                        System.Console.Write(" - {0}: Completed {1}%, {2:N}/{3:N} bytes", // Thread #1: Completed 0%, 0/10 000.00 bytes
+                                        System.Console.Write(" - {0}: Completed {1}%, {2:N}/{3:N} bytes",   // Thread #1: Completed 0%, 0/10 000.00 bytes
                                             Thread.CurrentThread.Name,
-                                            (threadProcessedSize * 100) / (inFile.Length / threadCount),  // % of compressed by thread devided to size
-                                            threadProcessedSize,                                          // that thread must compress
+                                            (threadProcessedSize * 100) / (inFile.Length / threadCount),    // % of compressed by thread devided to size
+                                            threadProcessedSize,                                            // that thread must compress
                                             inFile.Length / threadCount);
                                     }
                                 }
-                            }
-                            while (readBytes > 0);
-                        }
-                    }
+                            } // END OF USING MemoryStream (decompressedMemory)
+                        } // END OF USING MemoryStream (compressedMemory)
+                    } // END OF WHILE
+                    while (inFile.Position < inFile.Length);
                 }
             }
             catch (Exception ex)
